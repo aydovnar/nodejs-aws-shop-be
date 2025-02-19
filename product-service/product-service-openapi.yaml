@@ -1,0 +1,27 @@
+openapi: "3.0.0"
+servers:
+  - url: https://w1ikol8pue.execute-api.eu-central-1.amazonaws.com/prod
+info:
+  version: "1.0.0"
+  title: Product Service API
+paths:
+  /products:
+    get:
+      summary: "Retrieve full product list"
+      responses:
+        '200':
+          description: "List of products"
+  /products/{productId}:
+    get:
+      summary: "Retrieve a product by Id"
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: "Product found"
+        '404':
+          description: "Product not found"
