@@ -1,0 +1,26 @@
+*.js
+*.d.ts
+node_modules
+
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
+/.idea/.gitignore
+/.idea/aws.xml
+/coverage/lcov-report/base.css
+/coverage/clover.xml
+/coverage/coverage-final.json
+/coverage/lcov-report/favicon.png
+/coverage/lcov-report/getProductById.ts.html
+/coverage/lcov-report/getProductsList.ts.html
+/coverage/lcov-report/index.html
+/coverage/lcov.info
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/nodejs-aws-shop-be.iml
+/coverage/lcov-report/prettify.css
+/coverage/lcov-report/products.ts.html
+/.idea/inspectionProfiles/profiles_settings.xml
+/coverage/lcov-report/sort-arrow-sprite.png
+/.idea/vcs.xml
