@@ -1,53 +1,82 @@
-import {products} from './products';
+// lambda/getProductById.ts
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { APIGatewayProxyHandler } from 'aws-lambda';
 
-export const handler = async (event: any) => {
+const client = new DynamoDBClient({ region: process.env.REGION });
+const docClient = DynamoDBDocumentClient.from(client);
+
+export const handler: APIGatewayProxyHandler = async (event) => {
+    console.log('Event:', JSON.stringify(event, null, 2)); // Add logging
+    
     try {
-        const { productId } = event.pathParameters || {};
-        console.log('Received productId:', productId);
+        const productId = event.pathParameters?.productId;
         
         if (!productId) {
             return {
                 statusCode: 400,
                 headers: {
                     'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': '*'
+                    'Access-Control-Allow-Credentials': true,
                 },
-                body: JSON.stringify({ message: 'Product ID is required' })
+                body: JSON.stringify({ message: 'Product ID is required' }),
             };
         }
         
-        const product = products.find((p) => p.id === productId);
+        console.log('Fetching product with ID:', productId); // Add logging
         
-        if(!product){
-            
+        // Get product
+        const productResponse = await docClient.send(new GetCommand({
+            TableName: process.env.PRODUCTS_TABLE,
+            Key: { id: productId },
+        }));
+        
+        console.log('Product response:', JSON.stringify(productResponse, null, 2)); // Add logging
+        
+        if (!productResponse.Item) {
             return {
                 statusCode: 404,
                 headers: {
                     'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': '*'
+                    'Access-Control-Allow-Credentials': true,
                 },
-                body: JSON.stringify({ message: 'Product not found' })
+                body: JSON.stringify({ message: 'Product not found' }),
             };
         }
+        
+        // Get stock
+        const stockResponse = await docClient.send(new GetCommand({
+            TableName: process.env.STOCKS_TABLE,
+            Key: { product_id: productId },
+        }));
+        
+        console.log('Stock response:', JSON.stringify(stockResponse, null, 2)); // Add logging
+        
+        const product = {
+            ...productResponse.Item,
+            count: stockResponse.Item?.count || 0,
+        };
         
         return {
             statusCode: 200,
             headers: {
                 'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': '*',
-                'Access-Control-Allow-Methods': 'OPTIONS,GET',
-                'Content-Type': 'application/json'
+                'Access-Control-Allow-Credentials': true,
             },
-            body: JSON.stringify(product, null, 2)
+            body: JSON.stringify(product),
         };
     } catch (error) {
+        console.error('Error:', error); // Add error logging
         return {
             statusCode: 500,
             headers: {
                 'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': '*'
+                'Access-Control-Allow-Credentials': true,
             },
-            body: JSON.stringify({ message: 'Internal server error' })
+            body: JSON.stringify({
+                message: 'Internal server error',
+                error: 'Internal server error'
+            }),
         };
     }
 };
