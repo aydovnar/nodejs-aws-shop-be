@@ -41,13 +41,13 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             Bucket: BUCKET_NAME,
             Key: key,
             ContentType: 'text/csv',
-            ACL: 'public-read', // Make sure your bucket policy allows this
         });
         
         // Generate signed URL with specific options
         const signedUrl = await getSignedUrl(s3Client, command, {
             expiresIn: 3600,
-            signingRegion: 'eu-west-1',
+            signingRegion: 'eu-central-1',
+            signableHeaders: new Set(['host']),
         });
         
         console.log(`Generated signed URL for ${key} in bucket ${BUCKET_NAME}`);
@@ -63,13 +63,12 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         return {
             statusCode: 200,
             headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Credentials': true,
-                'Content-Type': 'application/json'
+                'Access-Control-Allow-Origin': 'https://d2kdejvzt251g9.cloudfront.net',
+                'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,X-Amz-Security-Token,Authorization,X-Api-Key,X-Requested-With,Accept,Access-Control-Allow-Methods,Access-Control-Allow-Origin,Access-Control-Allow-Headers',
+                'Access-Control-Expose-Headers': 'ETag'
             },
-            body: JSON.stringify({
-                uploadURL: signedUrl
-            })
+            body: signedUrl
         };
         
     } catch (error: unknown) {

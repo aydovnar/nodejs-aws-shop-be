@@ -7,6 +7,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import {LambdaDestination} from 'aws-cdk-lib/aws-s3-notifications';
+import * as custom from 'aws-cdk-lib/custom-resources';
 
 export class ImportServiceStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -16,8 +17,37 @@ export class ImportServiceStack extends cdk.Stack {
         const importBucket = s3.Bucket.fromBucketName(
             this,
             'ImportBucket',
-            'import-service-aydovnar' // your existing bucket name
+            'import-service-aydovnar'
         );
+        
+        // Create Custom Resource to set CORS
+        new custom.AwsCustomResource(this, 'SetBucketCors', {
+            onCreate: {
+                service: 'S3',
+                action: 'putBucketCors',
+                parameters: {
+                    Bucket: importBucket.bucketName,
+                    CORSConfiguration: {
+                        CORSRules: [
+                            {
+                                AllowedHeaders: ['*'],
+                                AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
+                                AllowedOrigins: ['https://d2kdejvzt251g9.cloudfront.net'],
+                                ExposeHeaders: ['ETag'],
+                                MaxAgeSeconds: 3600
+                            }
+                        ]
+                    }
+                },
+                physicalResourceId: custom.PhysicalResourceId.of('BucketCorsConfig')
+            },
+            policy: custom.AwsCustomResourcePolicy.fromStatements([
+                new iam.PolicyStatement({
+                    actions: ['s3:PutBucketCors'],
+                    resources: [importBucket.bucketArn]
+                })
+            ])
+        });
         
         // Create Lambda Function
         const importProductsFile = new lambda.Function(this, 'ImportProductsFileFunction', {
@@ -35,6 +65,9 @@ export class ImportServiceStack extends cdk.Stack {
             handler: 'importFileParser.handler',
             code: lambda.Code.fromAsset(path.join(__dirname, 'lambda')),
             timeout: cdk.Duration.seconds(30),
+            environment: {
+                BUCKET_NAME: importBucket.bucketName,
+            },
         });
         
         // Grant S3 permissions to importFileParser Lambda
@@ -43,7 +76,8 @@ export class ImportServiceStack extends cdk.Stack {
             actions: [
                 's3:GetObject',
                 's3:CopyObject',
-                's3:DeleteObject'
+                's3:DeleteObject',
+                's3:PutObject'
             ],
             resources: [
                 `${importBucket.bucketArn}/uploaded/*`,
