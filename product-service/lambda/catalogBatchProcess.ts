@@ -2,13 +2,12 @@ import { SQSEvent, SQSHandler } from 'aws-lambda';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
-import { randomUUID } from 'crypto';
-
 const dynamoClient = new DynamoDBClient({});
 const dynamoDocClient = DynamoDBDocumentClient.from(dynamoClient);
 const snsClient = new SNSClient({});
 
 const PRODUCTS_TABLE = process.env.PRODUCTS_TABLE!;
+const STOCKS_TABLE = process.env.STOCKS_TABLE!;
 const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN!;
 
 interface ProductData {
@@ -48,15 +47,27 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
                 title: productData.title.trim(),
                 description: productData.description.trim(),
                 price: productData.price,
+            };
+            
+            // Create the product with validated data
+            const stockItem = {
+                product_id: productData.id,
                 count: productData.count
             };
             
-            console.log('Putting item into DynamoDB:', JSON.stringify(item, null, 2));
+            console.log('Putting item into DynamoDB Product table:', JSON.stringify(item, null, 2));
             
             // Put the item into DynamoDB
             await dynamoDocClient.send(new PutCommand({
                 TableName: PRODUCTS_TABLE,
                 Item: item
+            }));
+            
+            console.log('Putting item into DynamoDB stocks table:', JSON.stringify(stockItem, null, 2));
+            
+            await dynamoDocClient.send(new PutCommand({
+                TableName: STOCKS_TABLE,
+                Item: stockItem
             }));
             
             console.log(`Successfully created product with id: ${item.id}`);
