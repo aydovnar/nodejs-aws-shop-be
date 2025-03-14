@@ -13,6 +13,11 @@ export class ImportServiceStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
         
+        // Import the queue URL from the Product service stack
+        const catalogItemsQueueUrl = cdk.Fn.importValue('CatalogItemsQueueUrl');
+        const catalogItemsQueueArn = cdk.Fn.importValue('CatalogItemsQueueArn');
+        
+        
         // Reference existing S3 bucket
         const importBucket = s3.Bucket.fromBucketName(
             this,
@@ -66,9 +71,16 @@ export class ImportServiceStack extends cdk.Stack {
             code: lambda.Code.fromAsset(path.join(__dirname, 'lambda')),
             timeout: cdk.Duration.seconds(30),
             environment: {
-                BUCKET_NAME: importBucket.bucketName,
+                CATALOG_ITEMS_QUEUE_URL: catalogItemsQueueUrl,
             },
         });
+        
+        // Add SQS permissions to Lambda
+        importFileParser.addToRolePolicy(new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: ['sqs:SendMessage'],
+            resources: [catalogItemsQueueArn],
+        }));
         
         // Grant S3 permissions to importFileParser Lambda
         importFileParser.addToRolePolicy(new iam.PolicyStatement({

@@ -1,141 +1,88 @@
 import { S3Event } from 'aws-lambda';
 import { S3Client, GetObjectCommand, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Readable } from 'stream';
 
 const s3Client = new S3Client({ region: 'eu-central-1' });
+const sqsClient = new SQSClient({ region: 'eu-central-1' });
 
-const parseCSV = (csvContent: string) => {
-    console.log('Raw CSV content:', csvContent); // Debug log
-    
-    // Split content into lines and filter out empty lines
+const parseCSV = async (csvContent: string, queueUrl: string) => {
     const lines = csvContent.split('\n').filter(line => line.trim());
-    console.log('Lines after split:', lines); // Debug log
     
     if (lines.length === 0) {
         console.log('No content found in CSV');
-        return [];
+        return;
     }
     
-    // Parse headers
     const headers = lines[0].split(',').map(header => header.trim());
-    console.log('Headers:', headers);
     
-    const records = [];
-    
-    // Parse data rows
+    // Process all lines except headers
     for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line) {
-            const values = line.split(',').map(value => value.trim());
-            if (values.length === headers.length) {
-                const record: any = {};
-                headers.forEach((header, index) => {
-                    record[header] = values[index];
-                });
-                records.push(record);
-            }
+        const values = lines[i].split(',').map(value => value.trim());
+        const record: any = {};
+        
+        headers.forEach((header, index) => {
+            record[header] = values[index];
+        });
+        
+        try {
+            await sqsClient.send(new SendMessageCommand({
+                QueueUrl: queueUrl,
+                MessageBody: JSON.stringify(record)
+            }));
+        } catch (error) {
+            console.error(`Failed to send message to SQS: ${error}`);
         }
     }
-    
-    console.log('Parsed records:', records);
-    return records;
 };
 
+// Validate environment variables at startup
+const QUEUE_URL = process.env.CATALOG_ITEMS_QUEUE_URL;
+if (!QUEUE_URL) {
+    throw new Error('CATALOG_ITEMS_QUEUE_URL environment variable is not set');
+}
+
 export const handler = async (event: S3Event) => {
-    const record = event.Records[0];
-    const bucket = record.s3.bucket.name;
-    const key = record.s3.object.key;
-    
-    console.log(`Processing file ${key} from bucket ${bucket}`);
     
     try {
-        const response = await s3Client.send(new GetObjectCommand({
-            Bucket: bucket,
-            Key: key
-        }));
-        
-        if (!response.Body) {
-            throw new Error('Empty response body');
+        for (const record of event.Records) {
+            const bucket = record.s3.bucket.name;
+            const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, ' '));
+            
+            const response = await s3Client.send(new GetObjectCommand({
+                Bucket: bucket,
+                Key: key
+            }));
+            
+            const stream = response.Body as Readable;
+            let csvContent = '';
+            
+            for await (const chunk of stream) {
+                csvContent += chunk;
+            }
+            
+            await parseCSV(
+                csvContent,
+                QUEUE_URL
+            );
+            
+            // Move file to parsed folder
+            const newKey = key.replace('uploaded', 'parsed');
+            await s3Client.send(new CopyObjectCommand({
+                Bucket: bucket,
+                CopySource: `${bucket}/${key}`,
+                Key: newKey
+            }));
+            
+            await s3Client.send(new DeleteObjectCommand({
+                Bucket: bucket,
+                Key: key
+            }));
+            
+            console.log(`Successfully processed and moved file ${key} to parsed folder`);
         }
-        
-        // Read the stream using async/await and Buffer
-        const stream = response.Body as Readable;
-        const chunks: Buffer[] = [];
-        
-        for await (const chunk of stream) {
-            chunks.push(Buffer.from(chunk));
-        }
-        
-        const csvContent = Buffer.concat(chunks).toString('utf-8');
-        console.log('CSV Content length:', csvContent.length); // Debug log
-        console.log('First 100 characters:', csvContent.substring(0, 100)); // Debug log
-        
-        if (!csvContent.trim()) {
-            console.log('CSV content is empty');
-            return {
-                statusCode: 400,
-                body: JSON.stringify({
-                    message: 'CSV file is empty',
-                })
-            };
-        }
-        
-        // Parse CSV content
-        const records = parseCSV(csvContent);
-        
-        if (records.length === 0) {
-            console.log('No records found in CSV file');
-            return {
-                statusCode: 200,
-                body: JSON.stringify({
-                    message: 'No records found in CSV file',
-                    recordsProcessed: 0
-                })
-            };
-        }
-        
-        // Move file to parsed folder
-        const fileName = key.split('/').pop();
-        const destinationKey = `parsed/${fileName}`;
-        
-        // Copy to parsed folder
-        await s3Client.send(new CopyObjectCommand({
-            Bucket: bucket,
-            CopySource: `${bucket}/${key}`,
-            Key: destinationKey
-        }));
-        
-        console.log(`Copied file to ${destinationKey}`);
-        
-        // Delete from uploaded folder
-        await s3Client.send(new DeleteObjectCommand({
-            Bucket: bucket,
-            Key: key
-        }));
-        
-        console.log(`Deleted file from ${key}`);
-        console.log(`Successfully processed ${records.length} records`);
-        
-        return {
-            statusCode: 200,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                message: 'File successfully processed and moved',
-                recordsProcessed: records.length,
-                records: records
-            })
-        };
-        
-    } catch (error: any) {
-        console.error('Error processing S3 event:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({
-                message: 'Error processing CSV file',
-                error: error.message
-            })
-        };
+    } catch (error) {
+        console.error('Error processing file:', error);
+        throw error;
     }
 };
