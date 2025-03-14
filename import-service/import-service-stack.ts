@@ -71,6 +71,7 @@ export class ImportServiceStack extends cdk.Stack {
             code: lambda.Code.fromAsset(path.join(__dirname, 'lambda')),
             timeout: cdk.Duration.seconds(30),
             environment: {
+                BUCKET_NAME: importBucket.bucketName,
                 CATALOG_ITEMS_QUEUE_URL: catalogItemsQueueUrl,
             },
         });
