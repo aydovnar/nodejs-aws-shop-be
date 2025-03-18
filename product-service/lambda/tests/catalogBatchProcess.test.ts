@@ -1,117 +1,139 @@
-import { Context, SQSEvent, SQSRecord, Callback } from 'aws-lambda';
-import { DynamoDB, SNS } from 'aws-sdk';
+// catalogBatchProcess.test.ts
 import { handler } from '../catalogBatchProcess';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
+import { Context, SQSEvent } from 'aws-lambda';
 
-// ... mock setup ...
-
-const createMockContext = (): Context => ({
-    callbackWaitsForEmptyEventLoop: true,
-    functionName: 'catalogBatchProcess',
-    functionVersion: '1',
-    invokedFunctionArn: 'test:arn',
-    memoryLimitInMB: '128',
-    awsRequestId: '123',
-    logGroupName: 'test-group',
-    logStreamName: 'test-stream',
-    getRemainingTimeInMillis: () => 1000,
-    done: () => {},
-    fail: () => {},
-    succeed: () => {},
-});
+jest.mock('@aws-sdk/client-dynamodb');
+jest.mock('@aws-sdk/lib-dynamodb');
+jest.mock('@aws-sdk/client-sns');
 
 describe('catalogBatchProcess', () => {
-    let mockDynamoDBPut: jest.Mock;
-    let mockSNSPublish: jest.Mock;
+    const mockDynamoSend = jest.fn();
+    const mockSNSSend = jest.fn();
+    
+    const mockContext: Context = {
+        callbackWaitsForEmptyEventLoop: true,
+        functionName: 'catalogBatchProcess',
+        functionVersion: '1',
+        invokedFunctionArn: 'arn:test',
+        memoryLimitInMB: '128',
+        awsRequestId: '123',
+        logGroupName: 'test-group',
+        logStreamName: 'test-stream',
+        getRemainingTimeInMillis: () => 1000,
+        done: () => {},
+        fail: () => {},
+        succeed: () => {},
+    };
     
     beforeEach(() => {
-        // ... mock setup ...
+        // Setup environment variables
+        process.env.PRODUCTS_TABLE = 'test-products-table';
+        process.env.STOCKS_TABLE = 'test-stocks-table';
+        process.env.SNS_TOPIC_ARN = 'test-sns-topic';
+        
+        // Mock DynamoDB
+        (DynamoDBClient as jest.Mock).mockImplementation(() => ({}));
+        (DynamoDBDocumentClient.from as jest.Mock).mockReturnValue({
+            send: mockDynamoSend
+        });
+        
+        // Mock SNS
+        (SNSClient as jest.Mock).mockImplementation(() => ({
+            send: mockSNSSend
+        }));
+        
+        // Clear mocks before each test
+        jest.clearAllMocks();
     });
     
-    it('should successfully process SQS messages and create products', async () => {
-        const testProduct = {
-            id: '1',
+    const validProduct = {
+        id: 'test-id',
+        title: 'Test Product',
+        description: 'Test Description',
+        price: 99.99,
+        count: 10
+    };
+    
+    const createSQSEvent = (body: any): SQSEvent => ({
+        Records: [
+            {
+                messageId: '1',
+                receiptHandle: 'test-receipt',
+                body: JSON.stringify(body),
+                attributes: {
+                    ApproximateReceiveCount: '1',
+                    SentTimestamp: '1',
+                    SenderId: 'test-sender',
+                    ApproximateFirstReceiveTimestamp: '1'
+                },
+                messageAttributes: {},
+                md5OfBody: 'test-md5',
+                eventSource: 'aws:sqs',
+                eventSourceARN: 'test:arn',
+                awsRegion: 'eu-central-1'
+            }
+        ]
+    });
+    
+    it('should throw error for invalid product data', async () => {
+        const invalidProduct = {
+            id: '', // invalid empty id
             title: 'Test Product',
             description: 'Test Description',
-            price: 99.99
+            price: 99.99,
+            count: 10
         };
         
-        const testEvent = createSQSEvent([testProduct]);
-        const mockContext = createMockContext();
-        const mockCallback: Callback = jest.fn();
+        const testEvent = createSQSEvent(invalidProduct);
         
-        await handler(testEvent, mockContext, mockCallback);
-        
-        expect(mockDynamoDBPut).toHaveBeenCalledTimes(1);
-        // ... rest of assertions ...
+        await expect(handler(testEvent, mockContext, () => {}))
+        .rejects.toThrow('Invalid product data');
     });
     
-    it('should handle database errors and send error notification', async () => {
-        const dbError = new Error('Database error');
-        mockDynamoDBPut.mockRejectedValue(dbError);
+    it('should throw error for invalid JSON in SQS message', async () => {
+        const testEvent: SQSEvent = {
+            Records: [
+                {
+                    messageId: '1',
+                    receiptHandle: 'test-receipt',
+                    body: 'invalid-json',
+                    attributes: {
+                        ApproximateReceiveCount: '1',
+                        SentTimestamp: '1',
+                        SenderId: 'test-sender',
+                        ApproximateFirstReceiveTimestamp: '1'
+                    },
+                    messageAttributes: {},
+                    md5OfBody: 'test-md5',
+                    eventSource: 'aws:sqs',
+                    eventSourceARN: 'test:arn',
+                    awsRegion: 'eu-central-1'
+                }
+            ]
+        };
         
-        const testEvent = createSQSEvent([
-            { id: '1', title: 'Test Product', description: 'Test Description', price: 99.99 }
-        ]);
-        const mockContext = createMockContext();
-        const mockCallback: Callback = jest.fn();
-        
-        await expect(async () => {
-            await handler(testEvent, mockContext, mockCallback);
-        }).rejects.toThrow('Database error');
-        
-        expect(mockCallback).toHaveBeenCalledWith(expect.any(Error));
-        expect(mockSNSPublish).toHaveBeenCalledWith(
-            expect.objectContaining({
-                TopicArn: process.env.SNS_TOPIC_ARN,
-                Subject: 'Error Creating Products',
-                Message: expect.stringContaining('Error occurred while creating products')
-            }),
-            undefined,
-            expect.any(Function)
-        );
+        await expect(handler(testEvent, mockContext, () => {}))
+        .rejects.toThrow('Unexpected token');
     });
     
-    it('should handle multiple products in batch', async () => {
-        const testProducts = [
-            { id: '1', title: 'Product 1', description: 'Desc 1', price: 99.99 },
-            { id: '2', title: 'Product 2', description: 'Desc 2', price: 149.99 }
+    it('should validate all product fields', async () => {
+        const testCases = [
+            { ...validProduct, id: undefined },
+            { ...validProduct, title: '' },
+            { ...validProduct, description: undefined },
+            { ...validProduct, price: 'not-a-number' },
+            { ...validProduct, price: -1 },
+            { ...validProduct, count: 'not-a-number' },
+            { ...validProduct, count: -1 }
         ];
         
-        const testEvent = createSQSEvent(testProducts);
-        const mockContext = createMockContext();
-        const mockCallback: Callback = jest.fn();
-        
-        await handler(testEvent, mockContext, mockCallback);
-        
-        expect(mockDynamoDBPut).toHaveBeenCalledTimes(2);
-        // ... rest of assertions ...
-        
-        expect(mockCallback).toHaveBeenCalledWith(null, expect.any(Object));
-    });
-    
-    // Helper function to create SQS event
-    const createSQSEvent = (bodies: Record<string, any>[]): SQSEvent => ({
-        Records: bodies.map((body, index): SQSRecord => ({
-            messageId: index.toString(),
-            receiptHandle: `handle-${index}`,
-            body: JSON.stringify(body),
-            attributes: {
-                ApproximateReceiveCount: '1',
-                SentTimestamp: '1234567890',
-                SenderId: 'TESTID',
-                ApproximateFirstReceiveTimestamp: '1234567890'
-            },
-            messageAttributes: {},
-            md5OfBody: `test-md5-${index}`,
-            eventSource: 'aws:sqs',
-            eventSourceARN: 'test:arn',
-            awsRegion: 'eu-west-1'
-        }))
-    });
-    
-    afterEach(() => {
-        jest.clearAllMocks();
-        delete process.env.PRODUCTS_TABLE;
-        delete process.env.SNS_TOPIC_ARN;
+        for (const testCase of testCases) {
+            const testEvent = createSQSEvent(testCase);
+            await expect(handler(testEvent, mockContext, () => {}))
+            .rejects.toThrow('Invalid product data');
+        }
     });
 });

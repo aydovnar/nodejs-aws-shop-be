@@ -1,5 +1,5 @@
 import { SQSEvent, SQSHandler } from 'aws-lambda';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import {DynamoDBDocumentClient, PutCommand, TransactWriteCommand} from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 const dynamoClient = new DynamoDBClient({});
@@ -56,18 +56,24 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
             };
             
             console.log('Putting item into DynamoDB Product table:', JSON.stringify(item, null, 2));
-            
-            // Put the item into DynamoDB
-            await dynamoDocClient.send(new PutCommand({
-                TableName: PRODUCTS_TABLE,
-                Item: item
-            }));
-            
             console.log('Putting item into DynamoDB stocks table:', JSON.stringify(stockItem, null, 2));
             
-            await dynamoDocClient.send(new PutCommand({
-                TableName: STOCKS_TABLE,
-                Item: stockItem
+            // Use TransactWriteCommand to ensure both operations succeed or fail together
+            await dynamoDocClient.send(new TransactWriteCommand({
+                TransactItems: [
+                    {
+                        Put: {
+                            TableName: PRODUCTS_TABLE,
+                            Item: item
+                        }
+                    },
+                    {
+                        Put: {
+                            TableName: STOCKS_TABLE,
+                            Item: stockItem
+                        }
+                    }
+                ]
             }));
             
             console.log(`Successfully created product with id: ${item.id}`);
@@ -87,8 +93,6 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
                     }
                 }
             }));
-            
-            console.log('Successfully sent SNS notification');
         }
         
         console.log(`Successfully processed ${event.Records.length} products`);
