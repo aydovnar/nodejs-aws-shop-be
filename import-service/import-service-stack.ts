@@ -13,6 +13,8 @@ export class ImportServiceStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
         
+        const authorizerArn = cdk.Fn.importValue('BasicAuthorizerArn');
+        
         // Import the queue URL from the Product service stack
         const catalogItemsQueueUrl = cdk.Fn.importValue('CatalogItemsQueueUrl');
         const catalogItemsQueueArn = cdk.Fn.importValue('CatalogItemsQueueArn');
@@ -24,6 +26,21 @@ export class ImportServiceStack extends cdk.Stack {
             'ImportBucket',
             'import-service-aydovnar'
         );
+        
+        // Create the authorizer Lambda reference
+        const authorizerFunction = lambda.Function.fromFunctionArn(
+            this,
+            'ImportAuthorizer',
+            authorizerArn
+        );
+        
+        // Create the authorizer
+        const authorizer = new apigateway.TokenAuthorizer(this, 'TokenAuthorizer', {
+            handler: authorizerFunction,
+            identitySource: apigateway.IdentitySource.header('Authorization'),
+            resultsCacheTtl: cdk.Duration.seconds(0) // Disable caching for testing
+        });
+        
         
         // Create Custom Resource to set CORS
         new custom.AwsCustomResource(this, 'SetBucketCors', {
@@ -146,6 +163,8 @@ export class ImportServiceStack extends cdk.Stack {
             requestParameters: {
                 'method.request.querystring.name': true,
             },
+            authorizationType: apigateway.AuthorizationType.CUSTOM,
+            authorizer: authorizer,
             methodResponses: [{
                 statusCode: '200',
                 responseParameters: {
@@ -155,6 +174,30 @@ export class ImportServiceStack extends cdk.Stack {
             requestValidatorOptions: {
                 validateRequestParameters: true,
             }
+        });
+        
+        api.addGatewayResponse("UNAUTHORIZED", {
+            type: apigateway.ResponseType.UNAUTHORIZED,
+            statusCode: "401",
+            templates: {
+                "application/json": '{ "message": "Unauthorized" }',
+            },
+            responseHeaders: {
+                "Access-Control-Allow-Origin": "'*'",
+                "Access-Control-Allow-Headers": "'*'",
+            },
+        });
+        
+        api.addGatewayResponse("ACCESS_DENIED", {
+            type: apigateway.ResponseType.ACCESS_DENIED,
+            statusCode: "403",
+            templates: {
+                "application/json": '{ "message": "Access denied" }',
+            },
+            responseHeaders: {
+                "Access-Control-Allow-Origin": "'*'",
+                "Access-Control-Allow-Headers": "'*'",
+            },
         });
         
         // Output the API URL
