@@ -1,6 +1,9 @@
 *.js
 *.d.ts
 node_modules
+.env
+.env.*
+*.env
 
 
 # CDK asset staging directory
