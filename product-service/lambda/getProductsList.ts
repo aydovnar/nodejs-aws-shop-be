@@ -31,6 +31,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
         // Join products with stocks
         const productsWithStocks = products.map(product => ({
             ...product,
+            image: product.image || '',
             count: stocks.find(stock => stock.product_id === product.id)?.count || 0
         }));
         

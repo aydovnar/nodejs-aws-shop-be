@@ -54,6 +54,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
         
         const product = {
             ...productResponse.Item,
+            image:  productResponse.Item?.image || '',
             count: stockResponse.Item?.count || 0,
         };
         

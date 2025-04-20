@@ -1,0 +1,10 @@
+node_modules/
+.env
+*.log
+.elasticbeanstalk/*
+dist/
+
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml

@@ -12,6 +12,7 @@ type ProductData = {
     description: string;
     price: number;
     count: number;
+    image: string;
 };
 
 export const handler: APIGatewayProxyHandler = async (event) => {
@@ -58,6 +59,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
                             title: productData.title,
                             description: productData.description,
                             price: productData.price,
+                            image: productData.image ?? ''
                         }
                     }
                 },

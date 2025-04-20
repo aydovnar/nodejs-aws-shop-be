@@ -16,6 +16,7 @@ interface ProductData {
     description: string;
     price: number;
     count: number;
+    image: string;
 }
 
 const isValidProduct = (product: any): product is ProductData => {
@@ -47,6 +48,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
                 title: productData.title.trim(),
                 description: productData.description.trim(),
                 price: productData.price,
+                image: productData.image ?? ''
             };
             
             // Create the product with validated data
